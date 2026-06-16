@@ -119,9 +119,15 @@ body {
 }
 
 .table-container {
-  overflow-x: auto;
-  border-radius: 8px;
+  flex: 1;
+  background: var(--surface-color);
+  backdrop-filter: var(--backdrop-blur);
   border: 1px solid var(--surface-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .data-table {
@@ -129,10 +135,11 @@ body {
   border-collapse: collapse;
   white-space: nowrap;
   table-layout: fixed;
+  min-width: 800px;
 }
 
 .data-table th, .data-table td {
-  padding: 1rem;
+  padding: 12px 16px;
   text-align: left;
   border-bottom: 1px solid var(--surface-border);
   overflow: hidden;
@@ -140,36 +147,58 @@ body {
 }
 
 .data-table th {
+  position: sticky;
+  top: 0;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
   font-weight: 600;
   color: var(--text-muted);
   font-size: 0.85rem;
-  background-color: rgba(0, 0, 0, 0.02);
-  position: relative;
+  z-index: 10;
+}
+
+@media (prefers-color-scheme: dark) {
+  .data-table th { background: rgba(30, 41, 59, 0.85); }
 }
 
 .data-table th .resizer {
   position: absolute;
   right: 0;
-  top: 0;
-  bottom: 0;
-  width: 5px;
+  top: 25%;
+  bottom: 25%;
+  width: 3px;
   cursor: col-resize;
   user-select: none;
+  background-color: var(--surface-border);
+  border-radius: 4px;
+  transition: all 0.2s;
+  opacity: 0;
 }
+
+.data-table th:hover .resizer {
+  opacity: 1;
+}
+
 .data-table th .resizer:hover,
 .data-table th .resizer.resizing {
   background-color: var(--primary-color);
-  opacity: 0.5;
+  width: 4px;
+  opacity: 1;
+}
+
+/* Ensure checkbox alignment */
+.data-table th:first-child,
+.data-table td:first-child,
+.data-table th:last-child,
+.data-table td:last-child {
+  padding: 0 16px;
+  text-align: center;
+  overflow: visible;
 }
 
 .data-table td {
-  padding: 12px 16px;
   font-size: 0.9rem;
-  border-bottom: 1px solid var(--surface-border);
   white-space: nowrap;
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .data-table tr {
