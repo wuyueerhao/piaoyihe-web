@@ -27,6 +27,8 @@ function App() {
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [renameRule, setRenameRule] = useState('{开票日期}-{购买方}-{金额}');
 
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- File Processing ---
@@ -93,6 +95,26 @@ function App() {
     const timer = setTimeout(updatePreview, 500); // Debounce
     return () => { active = false; clearTimeout(timer); };
   }, [files, layout, duplicate]);
+
+  // --- Drag and Drop Sorting ---
+  const handleRowDragStart = (e: React.DragEvent, idx: number) => {
+    setDraggedIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleRowDragEnter = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    if (draggedIdx === null || draggedIdx === idx) return;
+    const newFiles = [...files];
+    const item = newFiles[draggedIdx];
+    newFiles.splice(draggedIdx, 1);
+    newFiles.splice(idx, 0, item);
+    setDraggedIdx(idx);
+    setFiles(newFiles);
+  };
+
+  const handleRowDragEnd = () => setDraggedIdx(null);
+  const handleRowDragOver = (e: React.DragEvent) => e.preventDefault();
 
   // --- Table Actions ---
   const toggleSelect = (id: string) => {
@@ -241,8 +263,18 @@ function App() {
               <tbody>
                 {files.length === 0 ? (
                   <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>暂无数据</td></tr>
-                ) : files.map((f) => (
-                  <tr key={f.id} className={f.selected ? 'selected' : ''} onClick={() => toggleSelect(f.id)}>
+                ) : files.map((f, i) => (
+                  <tr 
+                    key={f.id} 
+                    className={f.selected ? 'selected' : ''} 
+                    onClick={() => toggleSelect(f.id)}
+                    draggable
+                    onDragStart={(e) => handleRowDragStart(e, i)}
+                    onDragEnter={(e) => handleRowDragEnter(e, i)}
+                    onDragEnd={handleRowDragEnd}
+                    onDragOver={handleRowDragOver}
+                    style={{ opacity: draggedIdx === i ? 0.5 : 1 }}
+                  >
                     <td><input type="checkbox" checked={f.selected} readOnly /></td>
                     <td title={f.file.name}>{f.status === 'loading' ? <Loader2 size={14} className="lucide-spin"/> : f.file.name}</td>
                     <td>{f.info?.invoiceDate || '-'}</td>
@@ -287,12 +319,10 @@ function App() {
               </div>
               <div className="form-group">
                 <label>附加选项</label>
-                <div style={{ height: '38px', display: 'flex', alignItems: 'center' }}>
-                  <label className="checkbox-label">
-                    <input type="checkbox" checked={duplicate} onChange={e => setDuplicate(e.target.checked)} />
-                    一式两份
-                  </label>
-                </div>
+                <label className="checkbox-label">
+                  <input type="checkbox" checked={duplicate} onChange={e => setDuplicate(e.target.checked)} />
+                  一式两份
+                </label>
               </div>
             </div>
 
