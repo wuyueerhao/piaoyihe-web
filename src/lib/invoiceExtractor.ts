@@ -35,7 +35,7 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
   try {
     const loadingTask = pdfjsLib.getDocument({ 
       data: arrayBuffer,
-      cMapUrl: `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/cmaps/`,
+      cMapUrl: `/cmaps/`,
       cMapPacked: true,
     });
     const pdf = await loadingTask.promise;
@@ -57,8 +57,8 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     if (dateMatch) {
       info.invoiceDate = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
     } else {
-      const dateMatch2 = cleanText.match(/(\d{4}-\d{1,2}-\d{1,2})/);
-      if (dateMatch2) info.invoiceDate = dateMatch2[1];
+      const dateMatch2 = cleanText.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+      if (dateMatch2) info.invoiceDate = `${dateMatch2[1]}-${dateMatch2[2].padStart(2, '0')}-${dateMatch2[3].padStart(2, '0')}`;
     }
     
     // 金额 (价税合计/小写)
