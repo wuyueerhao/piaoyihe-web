@@ -45,8 +45,8 @@ function App() {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
     filename: 140,
     invoiceNumber: 150,
-    date: 100,
-    amount: 90,
+    date: 110,
+    amount: 100,
     taxAmount: 90,
     type: 80,
     buyer: 140,
