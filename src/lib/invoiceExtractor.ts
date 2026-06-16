@@ -11,6 +11,8 @@ export interface InvoiceInfo {
   buyerName: string;
   sellerName: string;
   fileName: string;
+  invoiceNumber: string;
+  taxAmount: number;
 }
 
 export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
@@ -24,7 +26,9 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     productType: '商品',
     buyerName: '购买方',
     sellerName: '销售方',
-    fileName: file.name
+    fileName: file.name,
+    invoiceNumber: '-',
+    taxAmount: 0.0
   };
 
   try {
@@ -56,6 +60,16 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     const amountMatch = fullText.match(/[¥￥]\s*([\d,]+\.\d{2})/);
     if (amountMatch) {
       info.amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+    }
+    
+    // 发票号码
+    const numberMatch = fullText.match(/号码[：:]?\s*(\d{8,20})/);
+    if (numberMatch) info.invoiceNumber = numberMatch[1];
+    
+    // 税额
+    const taxMatch = fullText.match(/税\s*额\s*[¥￥]?\s*([\d,]+\.\d{2})/);
+    if (taxMatch) {
+      info.taxAmount = parseFloat(taxMatch[1].replace(/,/g, ''));
     }
     
     // 购买方 (常常在 "购买方" 或 "名称：" 之后)

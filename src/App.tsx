@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { UploadCloud, Trash2, Settings, Download, Loader2, ArrowUp, ArrowDown, FileSymlink, XCircle, RefreshCw, Eye } from 'lucide-react';
+import { UploadCloud, Trash2, Settings, Download, Loader2, ArrowUp, ArrowDown, FileSymlink, XCircle, RefreshCw, Eye, Columns } from 'lucide-react';
 import JSZip from 'jszip';
 import { extractInvoiceInfo } from './lib/invoiceExtractor';
 import type { InvoiceInfo } from './lib/invoiceExtractor';
@@ -13,6 +13,16 @@ type FileItem = {
   status: 'loading' | 'success' | 'error';
   selected: boolean;
 };
+
+const AVAILABLE_COLUMNS = [
+  { id: 'filename', label: '文件名' },
+  { id: 'invoiceNumber', label: '发票号码' },
+  { id: 'date', label: '开票日期' },
+  { id: 'amount', label: '金额' },
+  { id: 'taxAmount', label: '税额' },
+  { id: 'type', label: '发票类型' },
+  { id: 'buyer', label: '购买方' },
+];
 
 function App() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -28,6 +38,9 @@ function App() {
   const [renameRule, setRenameRule] = useState('{开票日期}-{购买方}-{金额}');
 
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
+  
+  const [visibleColumns, setVisibleColumns] = useState<string[]>(['filename', 'invoiceNumber', 'date', 'amount', 'taxAmount', 'type', 'buyer']);
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -159,11 +172,11 @@ function App() {
   };
 
   const exportCSV = () => {
-    const headers = "文件名,发票类型,商品名称,开票日期,金额,购买方,销售方\n";
+    const headers = "文件名,发票号码,发票类型,商品名称,开票日期,金额,税额,购买方,销售方\n";
     const rows = files.map(f => {
       const i = f.info;
-      return i ? `"${f.file.name}","${i.invoiceType}","${i.productType}","${i.invoiceDate}","${i.amount}","${i.buyerName}","${i.sellerName}"` 
-               : `"${f.file.name}",解析失败,,,,,`;
+      return i ? `"${f.file.name}","${i.invoiceNumber}","${i.invoiceType}","${i.productType}","${i.invoiceDate}","${i.amount}","${i.taxAmount}","${i.buyerName}","${i.sellerName}"` 
+               : `"${f.file.name}",解析失败,,,,,,,`;
     }).join("\n");
     
     const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' });
@@ -253,16 +266,36 @@ function App() {
               <thead>
                 <tr>
                   <th style={{ width: 40 }}><input type="checkbox" checked={files.length > 0 && files.every(f=>f.selected)} onChange={toggleSelectAll} /></th>
-                  <th>文件名</th>
-                  <th>开票日期</th>
-                  <th>金额</th>
-                  <th>发票类型</th>
-                  <th>购买方</th>
+                  {AVAILABLE_COLUMNS.map(col => visibleColumns.includes(col.id) && (
+                    <th key={col.id}>{col.label}</th>
+                  ))}
+                  <th style={{ width: 40, textAlign: 'center', position: 'relative' }}>
+                    <button className="btn" style={{ padding: 4 }} onClick={() => setShowColumnMenu(!showColumnMenu)}>
+                      <Columns size={16} />
+                    </button>
+                    {showColumnMenu && (
+                      <div style={{ position: 'absolute', top: '100%', right: 0, background: 'var(--surface-color)', padding: '12px', borderRadius: '8px', boxShadow: '0 10px 24px rgba(0,0,0,0.2)', zIndex: 100, border: '1px solid var(--surface-border)', minWidth: '150px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {AVAILABLE_COLUMNS.map(col => (
+                          <label key={col.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            <input 
+                              type="checkbox" 
+                              checked={visibleColumns.includes(col.id)} 
+                              onChange={e => {
+                                if (e.target.checked) setVisibleColumns([...visibleColumns, col.id]);
+                                else setVisibleColumns(visibleColumns.filter(id => id !== col.id));
+                              }} 
+                            />
+                            {col.label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {files.length === 0 ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>暂无数据</td></tr>
+                  <tr><td colSpan={visibleColumns.length + 2} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>暂无数据</td></tr>
                 ) : files.map((f, i) => (
                   <tr 
                     key={f.id} 
@@ -276,11 +309,14 @@ function App() {
                     style={{ opacity: draggedIdx === i ? 0.5 : 1 }}
                   >
                     <td><input type="checkbox" checked={f.selected} readOnly /></td>
-                    <td title={f.file.name}>{f.status === 'loading' ? <Loader2 size={14} className="lucide-spin"/> : f.file.name}</td>
-                    <td>{f.info?.invoiceDate || '-'}</td>
-                    <td style={{ color: 'var(--primary-color)', fontWeight: 600 }}>{f.info ? `¥${f.info.amount.toFixed(2)}` : '-'}</td>
-                    <td>{f.info?.invoiceType || '-'}</td>
-                    <td title={f.info?.buyerName}>{f.info?.buyerName || '-'}</td>
+                    {visibleColumns.includes('filename') && <td title={f.file.name}>{f.status === 'loading' ? <Loader2 size={14} className="lucide-spin"/> : f.file.name}</td>}
+                    {visibleColumns.includes('invoiceNumber') && <td>{f.info?.invoiceNumber || '-'}</td>}
+                    {visibleColumns.includes('date') && <td>{f.info?.invoiceDate || '-'}</td>}
+                    {visibleColumns.includes('amount') && <td style={{ color: 'var(--primary-color)', fontWeight: 600 }}>{f.info ? `¥${f.info.amount.toFixed(2)}` : '-'}</td>}
+                    {visibleColumns.includes('taxAmount') && <td>{f.info ? `¥${f.info.taxAmount.toFixed(2)}` : '-'}</td>}
+                    {visibleColumns.includes('type') && <td>{f.info?.invoiceType || '-'}</td>}
+                    {visibleColumns.includes('buyer') && <td title={f.info?.buyerName}>{f.info?.buyerName || '-'}</td>}
+                    <td></td>
                   </tr>
                 ))}
               </tbody>
