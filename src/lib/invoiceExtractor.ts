@@ -91,24 +91,39 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
       info.taxAmount = parseFloat(taxMatch[1]);
     }
     
-    // 购买方与销售方
-    // 强制要求必须带有冒号，避免错误匹配到发票明细里的"项目名称"
-    const nameMatches = [...cleanText.matchAll(/名称[：:]([^\d统纳码区密]{2,30})/g)].map(m => m[1]);
-    if (nameMatches.length >= 2) {
-      info.buyerName = nameMatches[0];
-      info.sellerName = nameMatches[1];
-    } else if (nameMatches.length === 1) {
-      info.buyerName = nameMatches[0];
-    } else {
-      const companies = [...cleanText.matchAll(/([\u4e00-\u9fa5A-Za-z0-9()（）]{2,30}(?:公司|厂|院|局|所|部|中心|行|合作社|委员会))/g)].map(m => m[1]);
-      const uniqueCompanies = Array.from(new Set(companies));
-      if (uniqueCompanies.length >= 2) {
-         info.buyerName = uniqueCompanies[0];
-         info.sellerName = uniqueCompanies[1];
-      } else if (uniqueCompanies.length === 1) {
-         info.buyerName = uniqueCompanies[0];
+    // 购买方与销售方 - 三重策略
+    const companyKeywords = ['公司', '企业', '股份', '有限', '集团', '厂', '店', '中心', '工作室', '合作社', '委员会'];
+    
+    const extractName = (prefix: string) => {
+      // 策略1: 匹配区域前缀 (购买方/销售方)
+      const areaPattern = new RegExp(`${prefix}[^名]{0,20}名称[：:]([\\u4e00-\\u9fa5a-zA-Z0-9（）()]{4,30})`);
+      const areaMatch = cleanText.match(areaPattern);
+      if (areaMatch) return areaMatch[1];
+      
+      return null;
+    };
+
+    let buyer = extractName('购买方') || extractName('购');
+    let seller = extractName('销售方') || extractName('销');
+
+    if (!buyer || !seller) {
+      // 策略2 & 3: 提取所有符合条件的名称
+      const nameMatches = [...cleanText.matchAll(/名称[：:]([\\u4e00-\\u9fa5a-zA-Z0-9（）()]{4,30})/g)].map(m => m[1]);
+      const validNames = nameMatches.filter(name => companyKeywords.some(k => name.includes(k)));
+      
+      if (validNames.length >= 2) {
+        if (!buyer) buyer = validNames[0];
+        if (!seller) seller = validNames[1];
+      } else {
+        const companies = [...cleanText.matchAll(/([\\u4e00-\\u9fa5a-zA-Z0-9（）()]{2,30}(?:公司|企业|股份|有限|集团|厂|店|中心|工作室|合作社|委员会))/g)].map(m => m[1]);
+        const uniqueCompanies = Array.from(new Set(companies));
+        if (!buyer && uniqueCompanies.length > 0) buyer = uniqueCompanies[0];
+        if (!seller && uniqueCompanies.length > 1) seller = uniqueCompanies[1];
       }
     }
+    
+    if (buyer) info.buyerName = buyer;
+    if (seller) info.sellerName = seller;
     
     // 商品名称
     const productMatch = cleanText.match(/\*([^*]+)\*/);
