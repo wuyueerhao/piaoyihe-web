@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { UploadCloud, File as FileIcon, Trash2, Settings, Download, Loader2 } from 'lucide-react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { UploadCloud, Trash2, Settings, Download, Loader2, ArrowUp, ArrowDown, FileSymlink, XCircle, RefreshCw, Eye } from 'lucide-react';
+import JSZip from 'jszip';
 import { extractInvoiceInfo } from './lib/invoiceExtractor';
 import type { InvoiceInfo } from './lib/invoiceExtractor';
 import { mergePdfs, LAYOUT_MAP } from './lib/pdfMerger';
@@ -11,33 +11,39 @@ type FileItem = {
   file: File;
   info: InvoiceInfo | null;
   status: 'loading' | 'success' | 'error';
+  selected: boolean;
 };
 
 function App() {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [layout, setLayout] = useState('横向 2x2');
+  const [duplicate, setDuplicate] = useState(false);
+  
   const [isMerging, setIsMerging] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renameRule, setRenameRule] = useState('{开票日期}-{购买方}-{金额}');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- File Processing ---
   const processFiles = async (newFiles: File[]) => {
     const pdfFiles = newFiles.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-    
-    if (pdfFiles.length === 0) {
-      alert('请上传 PDF 文件！');
-      return;
-    }
+    if (pdfFiles.length === 0) return;
 
     const items: FileItem[] = pdfFiles.map(file => ({
       id: Math.random().toString(36).substring(7),
       file,
       info: null,
-      status: 'loading'
+      status: 'loading',
+      selected: false
     }));
 
     setFiles(prev => [...prev, ...items]);
 
-    // Parse info for each file
     for (const item of items) {
       try {
         const info = await extractInvoiceInfo(item.file);
@@ -48,56 +54,140 @@ function App() {
     }
   };
 
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  }, []);
-
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  }, []);
-
+  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); }, []);
+  const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); }, []);
   const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      processFiles(Array.from(e.dataTransfer.files));
-    }
+    e.preventDefault(); setIsDragging(false);
+    if (e.dataTransfer.files?.length) processFiles(Array.from(e.dataTransfer.files));
   }, []);
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      processFiles(Array.from(e.target.files));
+  // --- Real-time Preview ---
+  useEffect(() => {
+    let active = true;
+    const updatePreview = async () => {
+      if (files.length === 0) {
+        setPreviewUrl(null);
+        return;
+      }
+      // Only preview if at least one file is fully loaded
+      const validFiles = files.filter(f => f.status === 'success' || f.status === 'error').map(f => f.file);
+      if (validFiles.length === 0) return;
+
+      setIsPreviewLoading(true);
+      try {
+        const pdfBytes = await mergePdfs(validFiles, layout, duplicate);
+        if (!active) return;
+        const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
+        const url = URL.createObjectURL(blob);
+        setPreviewUrl(prev => {
+          if (prev) URL.revokeObjectURL(prev);
+          return url;
+        });
+      } catch (e) {
+        console.error("Preview generation failed", e);
+      } finally {
+        if (active) setIsPreviewLoading(false);
+      }
+    };
+
+    const timer = setTimeout(updatePreview, 500); // Debounce
+    return () => { active = false; clearTimeout(timer); };
+  }, [files, layout, duplicate]);
+
+  // --- Table Actions ---
+  const toggleSelect = (id: string) => {
+    setFiles(prev => prev.map(f => f.id === id ? { ...f, selected: !f.selected } : f));
+  };
+  const toggleSelectAll = () => {
+    const allSelected = files.every(f => f.selected);
+    setFiles(prev => prev.map(f => ({ ...f, selected: !allSelected })));
+  };
+
+  const moveUp = () => {
+    const idx = files.findIndex(f => f.selected);
+    if (idx > 0) {
+      const newFiles = [...files];
+      [newFiles[idx - 1], newFiles[idx]] = [newFiles[idx], newFiles[idx - 1]];
+      setFiles(newFiles);
     }
   };
 
-  const removeFile = (id: string) => {
-    setFiles(prev => prev.filter(f => f.id !== id));
+  const moveDown = () => {
+    const idx = files.findIndex(f => f.selected);
+    if (idx !== -1 && idx < files.length - 1) {
+      const newFiles = [...files];
+      [newFiles[idx + 1], newFiles[idx]] = [newFiles[idx], newFiles[idx + 1]];
+      setFiles(newFiles);
+    }
   };
 
-  const handleMerge = async () => {
-    if (files.length === 0) return;
+  const deleteSelected = () => setFiles(prev => prev.filter(f => !f.selected));
+  const clearAll = () => setFiles([]);
+
+  const sortByDate = () => {
+    setFiles(prev => [...prev].sort((a, b) => {
+      const da = a.info?.invoiceDate || '0';
+      const db = b.info?.invoiceDate || '0';
+      return da.localeCompare(db);
+    }));
+  };
+
+  const sortByAmount = () => {
+    setFiles(prev => [...prev].sort((a, b) => (b.info?.amount || 0) - (a.info?.amount || 0)));
+  };
+
+  const exportCSV = () => {
+    const headers = "文件名,发票类型,商品名称,开票日期,金额,购买方,销售方\n";
+    const rows = files.map(f => {
+      const i = f.info;
+      return i ? `"${f.file.name}","${i.invoiceType}","${i.productType}","${i.invoiceDate}","${i.amount}","${i.buyerName}","${i.sellerName}"` 
+               : `"${f.file.name}",解析失败,,,,,`;
+    }).join("\n");
     
+    const blob = new Blob(['\uFEFF' + headers + rows], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "发票明细导出.csv";
+    link.click();
+  };
+
+  const downloadRenamedZip = async () => {
+    const zip = new JSZip();
+    for (const f of files) {
+      if (f.info) {
+        let newName = renameRule
+          .replace('{开票日期}', f.info.invoiceDate)
+          .replace('{购买方}', f.info.buyerName)
+          .replace('{销售方}', f.info.sellerName)
+          .replace('{金额}', f.info.amount.toString())
+          .replace('{类型}', f.info.invoiceType);
+        newName = newName.replace(/[\\/:*?"<>|]/g, '_') + '.pdf';
+        zip.file(newName, f.file);
+      } else {
+        zip.file(`未解析_${f.file.name}`, f.file);
+      }
+    }
+    const content = await zip.generateAsync({ type: "blob" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(content);
+    link.download = "重命名发票打包.zip";
+    link.click();
+    setRenameModalOpen(false);
+  };
+
+  const handleMergeDownload = async () => {
+    if (files.length === 0) return;
+    setIsMerging(true);
     try {
-      setIsMerging(true);
-      const rawFiles = files.map(f => f.file);
-      const pdfBytes = await mergePdfs(rawFiles, layout);
-      
-      // Download
+      const pdfBytes = await mergePdfs(files.map(f => f.file), layout, duplicate);
       const blob = new Blob([pdfBytes as BlobPart], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       link.download = `合并发票_${new Date().getTime()}.pdf`;
-      document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      
     } catch (error) {
-      console.error('合并失败', error);
-      alert('合并失败，请查看控制台日志');
+      alert('合并失败');
     } finally {
       setIsMerging(false);
     }
@@ -106,131 +196,164 @@ function App() {
   const totalAmount = files.reduce((sum, f) => sum + (f.info?.amount || 0), 0);
 
   return (
-    <div className="app-container">
-      {/* Left Column: Upload and File List */}
-      <div className="main-content">
-        <div className="header">
-          <h1>票易合</h1>
-          <p>发票 PDF 合并排版工具 (Web 版)</p>
+    <div className="app-layout">
+      {/* Header */}
+      <header className="header">
+        <div className="header-title">
+          <h1>票易合 SaaS</h1>
+          <span className="header-version">v2.0 Pro</span>
         </div>
+        <div>
+          <button className="btn btn-outline" onClick={exportCSV} disabled={files.length === 0}>
+            <Download size={16}/> 导出明细 (CSV)
+          </button>
+        </div>
+      </header>
 
-        <div className="glass-panel">
+      <div className="main-container">
+        {/* Left Workspace */}
+        <div className="left-panel">
           <div 
-            className={`upload-area ${isDragging ? 'dragging' : ''}`}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
+            className={`upload-strip ${isDragging ? 'dragging' : ''}`}
+            onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}
             onClick={() => fileInputRef.current?.click()}
           >
-            <input 
-              type="file" 
-              multiple 
-              accept="application/pdf"
-              style={{ display: 'none' }}
-              ref={fileInputRef}
-              onChange={handleFileSelect}
-            />
-            <UploadCloud size={48} className="upload-icon" />
-            <h3>拖拽 PDF 发票到此处</h3>
-            <p style={{ color: 'var(--text-muted)', marginTop: 8 }}>或点击浏览本地文件</p>
+            <input type="file" multiple accept="application/pdf" style={{ display: 'none' }} ref={fileInputRef} onChange={e => { if (e.target.files) processFiles(Array.from(e.target.files)) }} />
+            <UploadCloud size={24} />
+            <span>拖拽 PDF 发票到此处，或点击浏览文件...</span>
           </div>
 
-          <div className="file-list">
-            <AnimatePresence>
-              {files.map(item => (
-                <motion.div 
-                  key={item.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  className="file-item"
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <FileIcon size={24} color="var(--primary-color)" />
-                    <div className="file-info">
-                      <span className="file-name">{item.file.name}</span>
-                      {item.status === 'loading' ? (
-                        <span className="file-meta" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Loader2 size={12} className="lucide-spin" /> 解析中...
-                        </span>
-                      ) : item.info ? (
-                        <span className="file-meta">
-                          {item.info.invoiceDate} | {item.info.invoiceType} | ￥{item.info.amount.toFixed(2)}
-                        </span>
-                      ) : (
-                        <span className="file-meta" style={{ color: 'var(--danger-color)' }}>解析失败</span>
-                      )}
-                    </div>
-                  </div>
-                  <button className="btn-icon" onClick={() => removeFile(item.id)}>
-                    <Trash2 size={18} />
-                  </button>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-            
-            {files.length === 0 && (
-              <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '2rem 0' }}>
-                暂无发票，请上传
-              </div>
-            )}
+          <div className="table-container">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 40 }}><input type="checkbox" checked={files.length > 0 && files.every(f=>f.selected)} onChange={toggleSelectAll} /></th>
+                  <th>文件名</th>
+                  <th>开票日期</th>
+                  <th>金额</th>
+                  <th>发票类型</th>
+                  <th>购买方</th>
+                </tr>
+              </thead>
+              <tbody>
+                {files.length === 0 ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-muted)' }}>暂无数据</td></tr>
+                ) : files.map((f) => (
+                  <tr key={f.id} className={f.selected ? 'selected' : ''} onClick={() => toggleSelect(f.id)}>
+                    <td><input type="checkbox" checked={f.selected} readOnly /></td>
+                    <td title={f.file.name}>{f.status === 'loading' ? <Loader2 size={14} className="lucide-spin"/> : f.file.name}</td>
+                    <td>{f.info?.invoiceDate || '-'}</td>
+                    <td style={{ color: 'var(--primary-color)', fontWeight: 600 }}>{f.info ? `¥${f.info.amount.toFixed(2)}` : '-'}</td>
+                    <td>{f.info?.invoiceType || '-'}</td>
+                    <td title={f.info?.buyerName}>{f.info?.buyerName || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="toolbar">
+            <button className="btn btn-outline" onClick={() => fileInputRef.current?.click()}><UploadCloud size={16}/> 添加</button>
+            <button className="btn btn-outline btn-danger" onClick={deleteSelected}><Trash2 size={16}/> 删除</button>
+            <button className="btn btn-outline btn-danger" onClick={clearAll}><XCircle size={16}/> 清空</button>
+            <div className="divider"></div>
+            <button className="btn btn-outline" onClick={moveUp}><ArrowUp size={16}/> 上移</button>
+            <button className="btn btn-outline" onClick={moveDown}><ArrowDown size={16}/> 下移</button>
+            <div className="divider"></div>
+            <button className="btn btn-outline" onClick={sortByDate}><RefreshCw size={16}/> 按日期排序</button>
+            <button className="btn btn-outline" onClick={sortByAmount}><RefreshCw size={16}/> 按金额排序</button>
+            <div className="divider"></div>
+            <button className="btn btn-primary" onClick={() => setRenameModalOpen(true)} disabled={files.length === 0}><FileSymlink size={16}/> 批量重命名压缩</button>
           </div>
         </div>
-      </div>
 
-      {/* Right Column: Settings and Action */}
-      <div className="sidebar">
-        <div className="glass-panel" style={{ position: 'sticky', top: '2rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1.5rem' }}>
-            <Settings size={20} color="var(--primary-color)" />
-            <h2 style={{ fontSize: '1.25rem' }}>排版设置</h2>
-          </div>
-
-          <div className="control-group">
-            <label>排版布局</label>
-            <select value={layout} onChange={e => setLayout(e.target.value)}>
-              {Object.keys(LAYOUT_MAP).map(k => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="control-group" style={{ marginTop: '2rem', paddingTop: '1.5rem', borderTop: '1px solid var(--surface-border)' }}>
-            <label>统计信息</label>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <span style={{ color: 'var(--text-muted)' }}>发票数量</span>
-              <span style={{ fontWeight: 'bold' }}>{files.length} 张</span>
+        {/* Right Sidebar */}
+        <div className="right-panel">
+          <div className="settings-card">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1rem' }}>
+              <Settings size={18} color="var(--primary-color)" />
+              <h3 style={{ fontSize: '1.1rem', margin: 0 }}>排版与打印设置</h3>
             </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ color: 'var(--text-muted)' }}>总金额</span>
-              <span style={{ fontWeight: 'bold', color: 'var(--primary-color)' }}>￥{totalAmount.toFixed(2)}</span>
+            
+            <div className="form-row">
+              <div className="form-group">
+                <label>排版布局</label>
+                <select value={layout} onChange={e => setLayout(e.target.value)}>
+                  {Object.keys(LAYOUT_MAP).map(k => <option key={k} value={k}>{k}</option>)}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>附加选项</label>
+                <div style={{ height: '38px', display: 'flex', alignItems: 'center' }}>
+                  <label className="checkbox-label">
+                    <input type="checkbox" checked={duplicate} onChange={e => setDuplicate(e.target.checked)} />
+                    一式两份
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid var(--surface-border)', display: 'flex', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>发票数量</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 600 }}>{files.length}</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>合计金额</div>
+                <div style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--primary-color)' }}>¥{totalAmount.toFixed(2)}</div>
+              </div>
             </div>
           </div>
 
-          <button 
-            className="btn-primary" 
-            style={{ marginTop: '2rem' }}
-            disabled={files.length === 0 || isMerging}
-            onClick={handleMerge}
-          >
-            {isMerging ? (
-              <><Loader2 size={20} className="lucide-spin" /> 合并中...</>
-            ) : (
-              <><Download size={20} /> 合并并下载</>
-            )}
+          <div className="preview-card">
+            <div className="preview-header">
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Eye size={16} /> 实时预览</span>
+              {isPreviewLoading && <Loader2 size={16} className="lucide-spin" color="var(--primary-color)" />}
+            </div>
+            <div className="preview-content">
+              {previewUrl ? (
+                <iframe src={`${previewUrl}#toolbar=0&view=FitH`} className="preview-iframe" title="PDF Preview" />
+              ) : (
+                <div className="preview-empty">
+                  <Eye size={32} opacity={0.5} />
+                  <span>添加文件后在此处预览排版</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <button className="btn btn-primary" style={{ padding: '1rem', fontSize: '1rem', justifyContent: 'center' }} onClick={handleMergeDownload} disabled={files.length === 0 || isMerging}>
+            {isMerging ? <><Loader2 size={20} className="lucide-spin" /> 合并处理中...</> : <><Download size={20} /> 合并并下载 PDF</>}
           </button>
         </div>
       </div>
-      
-      {/* 动画需要定义的 keyframes */}
+
+      {/* Rename Modal */}
+      {renameModalOpen && (
+        <div className="modal-overlay" onClick={() => setRenameModalOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <h2 className="modal-title">批量重命名压缩</h2>
+            <p style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+              因网页端无法直接修改本地文件，我们将为您生成一个包含所有重命名后文件的 ZIP 压缩包。
+            </p>
+            <div className="form-group">
+              <label>命名规则模板</label>
+              <input type="text" value={renameRule} onChange={e => setRenameRule(e.target.value)} />
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 8 }}>
+                可用变量: {'{开票日期}'}, {'{购买方}'}, {'{销售方}'}, {'{金额}'}, {'{类型}'}
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-outline" onClick={() => setRenameModalOpen(false)}>取消</button>
+              <button className="btn btn-primary" onClick={downloadRenamedZip}><Download size={16}/> 打包下载 ZIP</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        .lucide-spin {
-          animation: spin 1s linear infinite;
-        }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .lucide-spin { animation: spin 1s linear infinite; }
       `}</style>
     </div>
   );

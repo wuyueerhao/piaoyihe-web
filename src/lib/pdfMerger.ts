@@ -63,9 +63,10 @@ function drawDashedLine(
  * 合并排版 PDF
  * @param pdfFiles 用户上传的 PDF 文件列表
  * @param layoutKey 布局配置名称
+ * @param duplicate 是否一式两份
  * @returns 组合后 PDF 的 Uint8Array 字节数组
  */
-export async function mergePdfs(pdfFiles: File[], layoutKey: string): Promise<Uint8Array> {
+export async function mergePdfs(pdfFiles: File[], layoutKey: string, duplicate: boolean = false): Promise<Uint8Array> {
   const layout = LAYOUT_MAP[layoutKey] || LAYOUT_MAP['横向 2x2'];
   const outputDoc = await PDFDocument.create();
   
@@ -92,69 +93,68 @@ export async function mergePdfs(pdfFiles: File[], layoutKey: string): Promise<Ui
     for (let i = 0; i < pages.length; i++) {
       const itemsPerPage = layout.rows * layout.cols;
       
-      // 创建新页
-      if (pageCount % itemsPerPage === 0) {
-        currentPage = outputDoc.addPage([pageW, pageH]);
-        pageCount = 0;
-        
-        // 绘制分割线
-        if (itemsPerPage > 1) {
-          const cellW = availableWidth / layout.cols;
-          const cellH = availableHeight / layout.rows;
+      // 如果开启了一式两份，则把此页面嵌入两次
+      const iterations = duplicate ? 2 : 1;
+      
+      for (let d = 0; d < iterations; d++) {
+        // 创建新页
+        if (pageCount % itemsPerPage === 0) {
+          currentPage = outputDoc.addPage([pageW, pageH]);
+          pageCount = 0;
           
-          // 注意：pdf-lib 坐标系左下角为 (0,0)
-          // 垂直分割线
-          for (let c = 1; c < layout.cols; c++) {
-            const x = margin + c * cellW;
-            drawDashedLine(currentPage, x, margin, x, margin + availableHeight);
-          }
-          // 水平分割线
-          for (let r = 1; r < layout.rows; r++) {
-            const y = margin + r * cellH;
-            drawDashedLine(currentPage, margin, y, margin + availableWidth, y);
+          // 绘制分割线
+          if (itemsPerPage > 1) {
+            const cellW = availableWidth / layout.cols;
+            const cellH = availableHeight / layout.rows;
+            
+            // 垂直分割线
+            for (let c = 1; c < layout.cols; c++) {
+              const x = margin + c * cellW;
+              drawDashedLine(currentPage, x, margin, x, margin + availableHeight);
+            }
+            // 水平分割线
+            for (let r = 1; r < layout.rows; r++) {
+              const y = margin + r * cellH;
+              drawDashedLine(currentPage, margin, y, margin + availableWidth, y);
+            }
           }
         }
+        
+        const row = Math.floor(pageCount / layout.cols);
+        const col = pageCount % layout.cols;
+        
+        const cellWidth = availableWidth / layout.cols;
+        const cellHeight = availableHeight / layout.rows;
+        
+        const x = margin + col * cellWidth;
+        const yTop = pageH - margin - row * cellHeight;
+        const yBottom = yTop - cellHeight;
+        
+        const srcPage = pages[i];
+        const embeddedPage = await outputDoc.embedPage(srcPage);
+        
+        const srcWidth = embeddedPage.width;
+        const srcHeight = embeddedPage.height;
+        
+        const scaleX = (cellWidth - gap) / srcWidth;
+        const scaleY = (cellHeight - gap) / srcHeight;
+        const scale = Math.min(scaleX, scaleY);
+        
+        const finalWidth = srcWidth * scale;
+        const finalHeight = srcHeight * scale;
+        
+        const offsetX = (cellWidth - finalWidth) / 2;
+        const offsetY = (cellHeight - finalHeight) / 2;
+        
+        currentPage!.drawPage(embeddedPage, {
+          x: x + offsetX,
+          y: yBottom + offsetY,
+          width: finalWidth,
+          height: finalHeight,
+        });
+        
+        pageCount++;
       }
-      
-      const row = Math.floor(pageCount / layout.cols);
-      const col = pageCount % layout.cols;
-      
-      const cellWidth = availableWidth / layout.cols;
-      const cellHeight = availableHeight / layout.rows;
-      
-      // 注意坐标系 (0,0) 在左下角，因此 y 需要反转计算
-      const x = margin + col * cellWidth;
-      // y 轴从顶部往下算是 第0行、第1行... 所以在 pdf-lib 中应该是
-      const yTop = pageH - margin - row * cellHeight;
-      const yBottom = yTop - cellHeight;
-      
-      // 获取源页面并嵌入
-      const srcPage = pages[i];
-      const embeddedPage = await outputDoc.embedPage(srcPage);
-      
-      // 缩放计算
-      const srcWidth = embeddedPage.width;
-      const srcHeight = embeddedPage.height;
-      
-      const scaleX = (cellWidth - gap) / srcWidth;
-      const scaleY = (cellHeight - gap) / srcHeight;
-      const scale = Math.min(scaleX, scaleY);
-      
-      const finalWidth = srcWidth * scale;
-      const finalHeight = srcHeight * scale;
-      
-      const offsetX = (cellWidth - finalWidth) / 2;
-      const offsetY = (cellHeight - finalHeight) / 2;
-      
-      // 绘制嵌入的页面
-      currentPage!.drawPage(embeddedPage, {
-        x: x + offsetX,
-        y: yBottom + offsetY,
-        width: finalWidth,
-        height: finalHeight,
-      });
-      
-      pageCount++;
     }
   }
   
