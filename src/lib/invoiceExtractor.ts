@@ -53,11 +53,11 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     else if (cleanText.includes('电子发票') || cleanText.includes('数电发票') || cleanText.includes('全电发票')) info.invoiceType = '电票';
     
     // 开票日期
-    const dateMatch = cleanText.match(/(?:开票日期|日期)[：:]?(\d{4})年(\d{2})月(\d{2})日/);
+    const dateMatch = cleanText.match(/(\d{4})年(\d{1,2})月(\d{1,2})日/);
     if (dateMatch) {
-      info.invoiceDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+      info.invoiceDate = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
     } else {
-      const dateMatch2 = cleanText.match(/(?:开票日期|日期)[：:]?(\d{4}-\d{2}-\d{2})/);
+      const dateMatch2 = cleanText.match(/(\d{4}-\d{1,2}-\d{1,2})/);
       if (dateMatch2) info.invoiceDate = dateMatch2[1];
     }
     
@@ -76,8 +76,13 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     if (numberMatch) {
       info.invoiceNumber = numberMatch[1];
     } else {
-      const filenameMatch = file.name.match(/(\d{16,24})/);
-      if (filenameMatch) info.invoiceNumber = filenameMatch[1];
+      const digit20Match = cleanText.match(/(?<!\d)(\d{20})(?!\d)/);
+      if (digit20Match) {
+        info.invoiceNumber = digit20Match[1];
+      } else {
+        const filenameMatch = file.name.match(/(\d{16,24})/);
+        if (filenameMatch) info.invoiceNumber = filenameMatch[1];
+      }
     }
     
     // 税额
@@ -86,19 +91,22 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
       info.taxAmount = parseFloat(taxMatch[1]);
     }
     
-    // 购买方
-    const buyerMatch = cleanText.match(/(?:购买方信息|购买方名称|受票方信息|受票方名称|购买方|受票方|购方)[：:]?([^统纳码区密]+)/);
-    if (buyerMatch && buyerMatch[1].length > 1) {
-       info.buyerName = buyerMatch[1].substring(0, 30);
+    // 购买方与销售方
+    const nameMatches = [...cleanText.matchAll(/名称[：:]?([^\d统纳码区密]{2,30})/g)].map(m => m[1]);
+    if (nameMatches.length >= 2) {
+      info.buyerName = nameMatches[0];
+      info.sellerName = nameMatches[1];
+    } else if (nameMatches.length === 1) {
+      info.buyerName = nameMatches[0];
     } else {
-       const fallbackMatch = cleanText.match(/([\u4e00-\u9fa5A-Za-z0-9()（）]{2,30}(?:公司|厂|院|局|所|部|中心|行|合作社|委员会))/);
-       if (fallbackMatch) info.buyerName = fallbackMatch[1];
-    }
-    
-    // 销售方
-    const sellerMatch = cleanText.match(/(?:销售方信息|销售方名称|开票方信息|开票方名称|销售方|销方|开票方)[：:]?([^统纳码区密]+)/);
-    if (sellerMatch && sellerMatch[1].length > 1) {
-       info.sellerName = sellerMatch[1].substring(0, 30);
+      const companies = [...cleanText.matchAll(/([\u4e00-\u9fa5A-Za-z0-9()（）]{2,30}(?:公司|厂|院|局|所|部|中心|行|合作社|委员会))/g)].map(m => m[1]);
+      const uniqueCompanies = Array.from(new Set(companies));
+      if (uniqueCompanies.length >= 2) {
+         info.buyerName = uniqueCompanies[0];
+         info.sellerName = uniqueCompanies[1];
+      } else if (uniqueCompanies.length === 1) {
+         info.buyerName = uniqueCompanies[0];
+      }
     }
     
     // 商品名称
