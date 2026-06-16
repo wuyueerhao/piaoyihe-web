@@ -91,15 +91,21 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
       info.taxAmount = parseFloat(taxMatch[1]);
     }
     
-    // 购买方与销售方 - 三重策略
-    const companyKeywords = ['公司', '企业', '股份', '有限', '集团', '厂', '店', '中心', '工作室', '合作社', '委员会'];
+    // 购买方与销售方 - 三重策略优化版
+    const companyKeywords = ['公司', '企业', '股份', '有限', '集团', '厂', '店', '中心', '工作室', '合作社', '委员会', '局', '院', '所'];
     
+    // 清理混入名称中的长串数字(如发票号错位混入)
+    const cleanCompanyName = (name: string) => name.replace(/^[A-Za-z0-9]{5,}/, '');
+    const isValidName = (name: string) => /[\u4e00-\u9fa5]/.test(name) && name.length >= 2 && !name.startsWith('项目');
+
     const extractName = (prefix: string) => {
       // 策略1: 匹配区域前缀 (购买方/销售方)
       const areaPattern = new RegExp(`${prefix}[^名]{0,20}名称[：:]([\\u4e00-\\u9fa5a-zA-Z0-9（）()]{4,30})`);
       const areaMatch = cleanText.match(areaPattern);
-      if (areaMatch) return areaMatch[1];
-      
+      if (areaMatch) {
+        const cleaned = cleanCompanyName(areaMatch[1]);
+        if (isValidName(cleaned)) return cleaned;
+      }
       return null;
     };
 
@@ -108,15 +114,15 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
 
     if (!buyer || !seller) {
       // 策略2 & 3: 提取所有符合条件的名称
-      const nameMatches = [...cleanText.matchAll(/名称[：:]([\u4e00-\u9fa5a-zA-Z0-9（）()]{4,30})/g)].map(m => m[1]);
-      const validNames = nameMatches.filter(name => companyKeywords.some(k => name.includes(k)));
+      const rawNameMatches = [...cleanText.matchAll(/名称[：:]([\u4e00-\u9fa5a-zA-Z0-9（）()]{4,30})/g)].map(m => m[1]);
+      const validNames = rawNameMatches.map(cleanCompanyName).filter(name => isValidName(name) && companyKeywords.some(k => name.includes(k)));
       
       if (validNames.length >= 2) {
         if (!buyer) buyer = validNames[0];
         if (!seller) seller = validNames[1];
       } else {
-        const companies = [...cleanText.matchAll(/([\u4e00-\u9fa5a-zA-Z0-9（）()]{2,30}(?:公司|企业|股份|有限|集团|厂|店|中心|工作室|合作社|委员会))/g)].map(m => m[1]);
-        const uniqueCompanies = Array.from(new Set(companies));
+        const companies = [...cleanText.matchAll(/([\u4e00-\u9fa5a-zA-Z0-9（）()]{2,30}(?:公司|企业|股份|有限|集团|厂|店|中心|工作室|合作社|委员会|局|院|所))/g)].map(m => m[1]);
+        const uniqueCompanies = Array.from(new Set(companies.map(cleanCompanyName).filter(isValidName)));
         if (!buyer && uniqueCompanies.length > 0) buyer = uniqueCompanies[0];
         if (!seller && uniqueCompanies.length > 1) seller = uniqueCompanies[1];
       }
