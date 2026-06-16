@@ -315,7 +315,7 @@ body {
 .form-group:last-child {
   margin-bottom: 0;
 }
-.form-group label {
+.form-group > label {
   display: block;
   font-size: 0.85rem;
   color: var(--text-muted);
@@ -371,13 +371,15 @@ select:focus, input[type="text"]:focus {
 }
 
 .checkbox-label {
-  display: flex;
+  display: flex !important;
   align-items: center;
   gap: 8px;
-  font-size: 0.95rem;
+  font-size: 0.95rem !important;
+  color: var(--text-main) !important;
   cursor: pointer;
   user-select: none;
   height: 38px;
+  margin-bottom: 0 !important;
 }
 
 .checkbox-label input {
