@@ -111,7 +111,7 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
         lastCleaned = cleaned;
         cleaned = cleaned.replace(/^[^a-zA-Z0-9\\u4e00-\\u9fa5]+/, ''); // 移除开头的杂质标点符号
         cleaned = cleaned.replace(/^(?:统一社会信用代码|纳税人识别号|密码区|开票日期|发票号码|机器编号|校验码|收款人|复核人|开票人|购买方信息|销售方信息|购买方|销售方|项目名称|规格型号|单位|数量|单价|金额|税率|税额|名称|名\\s*称)/g, ''); // 移除错位的表头
-        cleaned = cleaned.replace(/^\\d*(?:\\d{4}(?:年|[-/.])\\d{1,2}(?:月|[-/.])\\d{1,2}日?|\\d{1,2}(?:月|[-/.])\\d{1,2}日)/, ''); // 移除夹杂前置数字的完整或短日期
+        cleaned = cleaned.replace(/^\\d*(?:年|[-/.])?\\d{1,2}(?:月|[-/.])\\d{1,2}日?/, ''); // 移除被数字挤压导致年份丢失的残余日期（如“年6月5日”）
         cleaned = cleaned.replace(/^(?=[0-9A-Z]*[0-9])[0-9A-Z]{15,20}/i, ''); // 移除开头的税号
         cleaned = cleaned.replace(/^\\d{6,}/, ''); // 移除开头的连续数字(发票号码等)
       }
