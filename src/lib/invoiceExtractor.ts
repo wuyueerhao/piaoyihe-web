@@ -101,6 +101,11 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     // 清理混入名称中的长串纯数字(如发票号)、税号或排版错位混入的日期和表头
     const cleanCompanyName = (name: string) => {
       let cleaned = name;
+      
+      // 终极杀手锏：在任何解析之前，全局强行抹除所有完整日期（20xx年xx月xx日）和隐藏的零宽字符
+      cleaned = cleaned.replace(/[\\u200B-\\u200D\\uFEFF]/g, '');
+      cleaned = cleaned.replace(/(?:20\\d{2}[-/.年]\\d{1,2}[-/.月]\\d{1,2}日?)/g, '');
+      
       let lastCleaned = '';
       while (cleaned !== lastCleaned) {
         lastCleaned = cleaned;
