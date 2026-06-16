@@ -43,13 +43,13 @@ function App() {
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
-    filename: 200,
-    invoiceNumber: 180,
-    date: 120,
-    amount: 100,
-    taxAmount: 100,
-    type: 100,
-    buyer: 200,
+    filename: 140,
+    invoiceNumber: 150,
+    date: 100,
+    amount: 90,
+    taxAmount: 90,
+    type: 80,
+    buyer: 140,
   });
 
   const resizingColRef = useRef<string | null>(null);
@@ -358,7 +358,7 @@ function App() {
                   >
                     <td><input type="checkbox" checked={f.selected} readOnly /></td>
                     {visibleColumns.includes('filename') && <td title={f.file.name}>{f.status === 'loading' ? <Loader2 size={14} className="lucide-spin"/> : f.file.name}</td>}
-                    {visibleColumns.includes('invoiceNumber') && <td>{f.info?.invoiceNumber || '-'}</td>}
+                    {visibleColumns.includes('invoiceNumber') && <td title={f.info?.invoiceNumber}>{f.info?.invoiceNumber || '-'}</td>}
                     {visibleColumns.includes('date') && <td>{f.info?.invoiceDate || '-'}</td>}
                     {visibleColumns.includes('amount') && <td style={{ color: 'var(--primary-color)', fontWeight: 600 }}>{f.info ? `¥${f.info.amount.toFixed(2)}` : '-'}</td>}
                     {visibleColumns.includes('taxAmount') && <td>{f.info ? `¥${f.info.taxAmount.toFixed(2)}` : '-'}</td>}
