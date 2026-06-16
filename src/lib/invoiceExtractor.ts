@@ -92,7 +92,8 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     }
     
     // 购买方与销售方
-    const nameMatches = [...cleanText.matchAll(/名称[：:]?([^\d统纳码区密]{2,30})/g)].map(m => m[1]);
+    // 强制要求必须带有冒号，避免错误匹配到发票明细里的"项目名称"
+    const nameMatches = [...cleanText.matchAll(/名称[：:]([^\d统纳码区密]{2,30})/g)].map(m => m[1]);
     if (nameMatches.length >= 2) {
       info.buyerName = nameMatches[0];
       info.sellerName = nameMatches[1];

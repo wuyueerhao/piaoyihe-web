@@ -42,6 +42,44 @@ function App() {
   const [visibleColumns, setVisibleColumns] = useState<string[]>(['filename', 'invoiceNumber', 'date', 'amount', 'taxAmount', 'type', 'buyer']);
   const [showColumnMenu, setShowColumnMenu] = useState(false);
 
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({
+    filename: 200,
+    invoiceNumber: 180,
+    date: 120,
+    amount: 100,
+    taxAmount: 100,
+    type: 100,
+    buyer: 200,
+  });
+
+  const resizingColRef = useRef<string | null>(null);
+  const startXRef = useRef<number>(0);
+  const startWidthRef = useRef<number>(0);
+
+  const handleResizeStart = (e: React.MouseEvent, colId: string, currentWidth: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingColRef.current = colId;
+    startXRef.current = e.clientX;
+    startWidthRef.current = currentWidth;
+
+    const handleMouseMove = (mouseEvent: MouseEvent) => {
+      if (!resizingColRef.current) return;
+      const diff = mouseEvent.clientX - startXRef.current;
+      const newWidth = Math.max(50, startWidthRef.current + diff);
+      setColumnWidths(prev => ({ ...prev, [resizingColRef.current!]: newWidth }));
+    };
+
+    const handleMouseUp = () => {
+      resizingColRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- File Processing ---
@@ -266,9 +304,19 @@ function App() {
               <thead>
                 <tr>
                   <th style={{ width: 40 }}><input type="checkbox" checked={files.length > 0 && files.every(f=>f.selected)} onChange={toggleSelectAll} /></th>
-                  {AVAILABLE_COLUMNS.map(col => visibleColumns.includes(col.id) && (
-                    <th key={col.id}>{col.label}</th>
-                  ))}
+                  {AVAILABLE_COLUMNS.map(col => {
+                    if (!visibleColumns.includes(col.id)) return null;
+                    const w = columnWidths[col.id] || 150;
+                    return (
+                      <th key={col.id} style={{ width: w }}>
+                        {col.label}
+                        <div 
+                          className="resizer"
+                          onMouseDown={(e) => handleResizeStart(e, col.id, w)}
+                        />
+                      </th>
+                    );
+                  })}
                   <th style={{ width: 40, textAlign: 'center', position: 'relative' }}>
                     <button className="btn" style={{ padding: 4 }} onClick={() => setShowColumnMenu(!showColumnMenu)}>
                       <Columns size={16} />
