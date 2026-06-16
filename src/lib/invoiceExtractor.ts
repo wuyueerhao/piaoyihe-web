@@ -91,16 +91,30 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
       info.taxAmount = parseFloat(taxMatch[1]);
     }
     
-    // 购买方与销售方 - 三重策略优化版
+    // 购买方与销售方 - 终极策略（全面兼容中英文及特殊符号）
     const companyKeywords = ['公司', '企业', '股份', '有限', '集团', '厂', '店', '中心', '工作室', '合作社', '委员会', '局', '院', '所'];
+    const enKeywords = ['INC', 'CORP', 'LTD', 'LLC', 'COMPANY', 'LIMITED', 'CORPORATION', 'CO'];
     
-    // 清理混入名称中的长串数字(如发票号错位混入)
-    const cleanCompanyName = (name: string) => name.replace(/^[A-Za-z0-9]{5,}/, '');
-    const isValidName = (name: string) => /[\u4e00-\u9fa5]/.test(name) && name.length >= 2 && !name.startsWith('项目');
+    // 允许的名称字符集（包含中文、英文、数字、括号、连接符、&符合、点、逗号）
+    const nameChars = '\\u4e00-\\u9fa5a-zA-Z0-9（）()\\-&.,';
+    
+    // 清理混入名称中的长串纯数字(如发票号)或税号
+    const cleanCompanyName = (name: string) => {
+      let cleaned = name.replace(/^\\d{8,}/, ''); // 移除开头的长串数字
+      cleaned = cleaned.replace(/^(?=[0-9A-Z]*[0-9])[0-9A-Z]{15,20}/i, ''); // 移除开头的税号
+      return cleaned;
+    };
+    
+    const isValidName = (name: string) => name.length >= 2 && !name.startsWith('项目');
+    
+    const hasCompanyKeyword = (name: string) => {
+      const upper = name.toUpperCase();
+      return companyKeywords.some(k => name.includes(k)) || enKeywords.some(k => upper.includes(k));
+    };
 
     const extractName = (prefix: string) => {
       // 策略1: 匹配区域前缀 (购买方/销售方)
-      const areaPattern = new RegExp(`${prefix}[^名]{0,20}名称[：:]([\\u4e00-\\u9fa5a-zA-Z0-9（）()]{4,30})`);
+      const areaPattern = new RegExp(`${prefix}[^名]{0,20}名称[：:]([${nameChars}]{4,60})`);
       const areaMatch = cleanText.match(areaPattern);
       if (areaMatch) {
         const cleaned = cleanCompanyName(areaMatch[1]);
@@ -113,15 +127,24 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     let seller = extractName('销售方') || extractName('销');
 
     if (!buyer || !seller) {
-      // 策略2 & 3: 提取所有符合条件的名称
-      const rawNameMatches = [...cleanText.matchAll(/名称[：:]([\u4e00-\u9fa5a-zA-Z0-9（）()]{4,30})/g)].map(m => m[1]);
-      const validNames = rawNameMatches.map(cleanCompanyName).filter(name => isValidName(name) && companyKeywords.some(k => name.includes(k)));
+      // 策略2: 提取名称并校验关键词
+      const namePattern = new RegExp(`名称[：:]([${nameChars}]{4,60})`, 'g');
+      const rawNameMatches = [...cleanText.matchAll(namePattern)].map(m => m[1]);
+      const validNames = rawNameMatches.map(cleanCompanyName).filter(name => isValidName(name) && hasCompanyKeyword(name));
       
       if (validNames.length >= 2) {
         if (!buyer) buyer = validNames[0];
         if (!seller) seller = validNames[1];
       } else {
-        const companies = [...cleanText.matchAll(/([\u4e00-\u9fa5a-zA-Z0-9（）()]{2,30}(?:公司|企业|股份|有限|集团|厂|店|中心|工作室|合作社|委员会|局|院|所))/g)].map(m => m[1]);
+        // 策略3: 暴力兜底，匹配包含公司后缀的中英文字符串
+        const cnPattern = new RegExp(`([${nameChars}]{2,40}(?:公司|企业|股份|有限|集团|厂|店|中心|工作室|合作社|委员会|局|院|所))`, 'g');
+        const enPattern = new RegExp(`([${nameChars}]{4,40}(?:INC|CORP|LTD|LLC|COMPANY|LIMITED|CORPORATION))`, 'gi');
+        
+        const companies = [
+          ...[...cleanText.matchAll(cnPattern)].map(m => m[1]),
+          ...[...cleanText.matchAll(enPattern)].map(m => m[1])
+        ];
+        
         const uniqueCompanies = Array.from(new Set(companies.map(cleanCompanyName).filter(isValidName)));
         if (!buyer && uniqueCompanies.length > 0) buyer = uniqueCompanies[0];
         if (!seller && uniqueCompanies.length > 1) seller = uniqueCompanies[1];
