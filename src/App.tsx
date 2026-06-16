@@ -219,8 +219,11 @@ function App() {
             onClick={() => fileInputRef.current?.click()}
           >
             <input type="file" multiple accept="application/pdf" style={{ display: 'none' }} ref={fileInputRef} onChange={e => { if (e.target.files) processFiles(Array.from(e.target.files)) }} />
-            <UploadCloud size={24} />
-            <span>拖拽 PDF 发票到此处，或点击浏览文件...</span>
+            <UploadCloud size={48} />
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '1.2rem', fontWeight: 600 }}>拖拽 PDF 发票到此处</span>
+              <span style={{ fontSize: '0.9rem', color: 'var(--text-muted)' }}>或点击浏览本地文件...</span>
+            </div>
           </div>
 
           <div className="table-container">
