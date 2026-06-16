@@ -39,60 +39,65 @@ export async function extractInvoiceInfo(file: File): Promise<InvoiceInfo> {
     const page = await pdf.getPage(1);
     const textContent = await page.getTextContent();
     const textItems = textContent.items.map((item: any) => item.str);
-    const fullText = textItems.join('');
+    const rawText = textItems.join('');
+    const cleanText = rawText.replace(/\s+/g, '');
     
     // 发票类型识别
-    if (fullText.includes('专用发票')) info.invoiceType = '专票';
-    else if (fullText.includes('普通发票')) info.invoiceType = '普票';
-    else if (fullText.includes('电子发票')) info.invoiceType = '电票';
+    if (cleanText.includes('专用发票')) info.invoiceType = '专票';
+    else if (cleanText.includes('普通发票')) info.invoiceType = '普票';
+    else if (cleanText.includes('电子发票') || cleanText.includes('数电发票') || cleanText.includes('全电发票')) info.invoiceType = '电票';
     
     // 开票日期
-    const dateMatch = fullText.match(/(?:开票日期|日期)[：:]?\s*(\d{4})\s*年\s*(\d{2})\s*月\s*(\d{2})\s*日/);
+    const dateMatch = cleanText.match(/(?:开票日期|日期)[：:]?(\d{4})年(\d{2})月(\d{2})日/);
     if (dateMatch) {
       info.invoiceDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
     } else {
-      const dateMatch2 = fullText.match(/(?:开票日期|日期)[：:]?\s*(\d{4}-\d{2}-\d{2})/);
+      const dateMatch2 = cleanText.match(/(?:开票日期|日期)[：:]?(\d{4}-\d{2}-\d{2})/);
       if (dateMatch2) info.invoiceDate = dateMatch2[1];
     }
     
     // 金额 (价税合计/小写)
-    // 寻找类似 (小写) ¥123.45 或 ￥123.45
-    const amountMatch = fullText.match(/[¥￥]\s*([\d,]+\.\d{2})/);
+    const amountMatch = cleanText.match(/(?:小写|价税合计).*?[¥￥]?(\d{1,10}\.\d{2})/);
     if (amountMatch) {
-      info.amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+      info.amount = parseFloat(amountMatch[1]);
+    } else {
+      // Fallback
+      const allMoney = [...cleanText.matchAll(/[¥￥](\d{1,10}\.\d{2})/g)].map(m => parseFloat(m[1]));
+      if (allMoney.length > 0) info.amount = Math.max(...allMoney);
     }
     
     // 发票号码
-    const numberMatch = fullText.match(/号码[：:]?\s*(\d{8,20})/);
+    const numberMatch = cleanText.match(/(?:发票号码|号码)[：:]?(\d{8,24})/);
     if (numberMatch) info.invoiceNumber = numberMatch[1];
     
     // 税额
-    const taxMatch = fullText.match(/税\s*额\s*[¥￥]?\s*([\d,]+\.\d{2})/);
+    const taxMatch = cleanText.match(/(?:合计税额|税额合计|税额).*?[¥￥]?(\d{1,10}\.\d{2})/);
     if (taxMatch) {
-      info.taxAmount = parseFloat(taxMatch[1].replace(/,/g, ''));
+      info.taxAmount = parseFloat(taxMatch[1]);
     }
     
-    // 购买方 (常常在 "购买方" 或 "名称：" 之后)
-    const buyerIdx = fullText.indexOf('购买方');
-    if (buyerIdx !== -1) {
-      const buyerStr = fullText.substring(buyerIdx, buyerIdx + 100);
-      const nameMatch = buyerStr.match(/名称[：:]\s*([^信用代码\d]+)/);
-      if (nameMatch) info.buyerName = nameMatch[1].trim();
+    // 购买方
+    const buyerMatch = cleanText.match(/(?:购买方|受票方|购方)(?:信息)?(?:名称)?[：:]?([^统纳码区密]+)/);
+    if (buyerMatch && buyerMatch[1].length > 1) {
+       info.buyerName = buyerMatch[1].replace(/名称[：:]?/, '').substring(0, 30);
+    } else {
+       const fallbackMatch = cleanText.match(/([\u4e00-\u9fa5A-Za-z0-9()（）]{2,30}(?:公司|厂|院|局|所|部|中心|行|合作社|委员会))/);
+       if (fallbackMatch) info.buyerName = fallbackMatch[1];
     }
     
     // 销售方
-    const sellerIdx = fullText.indexOf('销售方');
-    if (sellerIdx !== -1) {
-      const sellerStr = fullText.substring(sellerIdx, sellerIdx + 100);
-      const nameMatch = sellerStr.match(/名称[：:]\s*([^信用代码\d]+)/);
-      if (nameMatch) info.sellerName = nameMatch[1].trim();
+    const sellerMatch = cleanText.match(/(?:销售方|销方|开票方)(?:信息)?(?:名称)?[：:]?([^统纳码区密]+)/);
+    if (sellerMatch && sellerMatch[1].length > 1) {
+       info.sellerName = sellerMatch[1].replace(/名称[：:]?/, '').substring(0, 30);
     }
     
     // 商品名称
-    const productMatch = fullText.match(/\*([^*]+)\*/);
+    const productMatch = cleanText.match(/\*([^*]+)\*/);
     if (productMatch) {
       info.productType = productMatch[1].trim();
     }
+    
+    console.log("PDF Extracted:", { raw: rawText, clean: cleanText, result: info });
     
   } catch (error) {
     console.error(`解析 PDF [${file.name}] 失败:`, error);
